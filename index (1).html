@@ -1,0 +1,172 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Discord Clone</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+body { margin:0; font-family:'Segoe UI',sans-serif; background:#36393f; color:white; display:flex; height:100vh; }
+.sidebar { width:240px; background:#2f3136; padding:15px; display:flex; flex-direction:column; }
+.sidebar h3 { color:#8e9297; font-size:12px; margin-bottom:10px; text-transform:uppercase; }
+.channel { padding:6px 10px; border-radius:4px; cursor:pointer; color:#b9bbbe; transition:.15s; }
+.channel:hover { background:#40444b; color:white; }
+.edit-profile { margin-top:auto; background:#40444b; text-align:center; padding:8px; border-radius:4px; cursor:pointer; }
+.edit-profile:hover { background:#5865f2; }
+.chat { flex:1; display:flex; flex-direction:column; }
+.header { padding:15px; background:#2f3136; font-weight:bold; border-bottom:1px solid #202225; }
+.messages { flex:1; padding:20px; overflow-y:auto; }
+.message { margin-bottom:10px; }
+.username { font-weight:bold; cursor:pointer; color:#7289da; }
+.username:hover { text-decoration:underline; }
+.input-area { padding:10px 15px; background:#40444b; display:flex; }
+input { flex:1; padding:10px; border-radius:4px; border:none; background:#303339; color:white; }
+button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; background:#7289da; color:white; cursor:pointer; }
+.typing-indicator { font-size:12px; color:#b9bbbe; margin-left:5px; font-style:italic; }
+.level-badge { background:#5865f2; color:white; border-radius:3px; padding:0 4px; font-size:10px; margin-left:4px; }
+</style>
+</head>
+<body>
+
+
+<div class="sidebar">
+  <h3>TEXT CHANNELS</h3>
+  <div class="channel" onclick="switchChannel('general')"># general</div>
+  <div class="channel" onclick="switchChannel('gaming')"># gaming</div>
+  <div class="channel" onclick="switchChannel('coding')"># coding</div>
+  <div class="channel" onclick="switchChannel('stats')"># stats</div>
+  <div class="channel" onclick="switchChannel('shop')"># shop</div>
+  <div class="edit-profile" onclick="openProfileEditor()">⚙ Edit Profile</div>
+</div>
+
+
+<div class="chat">
+  <div class="header" id="channelName"># general</div>
+  <div class="messages" id="messages"></div>
+  <div class="input-area">
+    <input id="messageInput" placeholder="Message #general">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+  <div id="typingIndicator" class="typing-indicator"></div>
+</div>
+
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
+
+
+const supabase = createClient(
+  "https://adrusttuicogkeplrcac.supabase.co",
+  "YOUR_ANON_KEY"
+)
+
+
+let username = localStorage.getItem("username") || ""
+let currentChannel = "general"
+let isDM = false
+let dmUser = null
+let typingTimeout = null
+
+
+if(!username){ while(!username) username=prompt("Enter username:"); localStorage.setItem("username",username) }
+
+
+await supabase.from("profiles").upsert({ username, bio:"", xp:0, level:1, coins:0 })
+
+
+/* ---------------- SHOP ---------------- */
+async function loadShop(){
+  const container=document.getElementById("messages")
+  container.innerHTML=""
+
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("coins, owned_snake")
+    .eq("username", username)
+    .maybeSingle()
+
+
+  const div=document.createElement("div")
+  div.className="message"
+
+
+  if(profile?.owned_snake){
+    div.innerHTML=`
+      <strong>Snake Game</strong><br>
+      You already own this game.<br>
+      <button onclick="playSnakeGame()">Play Game</button>
+      <div id="snake-container"></div>
+    `
+  }else{
+    div.innerHTML=`
+      <strong>Snake Game</strong><br>
+      Play the classic Snake game! Cost: 25 coins<br>
+      <button onclick="buySnakeGame()">Buy & Play</button>
+      <div id="snake-container"></div>
+    `
+  }
+
+
+  container.appendChild(div)
+  container.scrollTop=container.scrollHeight
+}
+
+
+async function buySnakeGame(){
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("coins, owned_snake")
+    .eq("username", username)
+    .maybeSingle()
+
+
+  if(!profile) return
+
+
+  if(profile.coins < 25){
+    alert("You need 25 coins to buy Snake!")
+    return
+  }
+
+
+  await supabase.from("profiles").update({
+    coins: profile.coins - 25,
+    owned_snake: true
+  }).eq("username", username)
+
+
+  const container=document.getElementById("snake-container")
+  container.innerHTML=`<iframe src="snake.html" width="300" height="400"></iframe>`
+
+
+  const button=container.parentElement.querySelector("button")
+  if(button) button.remove()
+}
+
+
+function playSnakeGame(){
+  const container=document.getElementById("snake-container")
+  container.innerHTML=`<iframe src="snake.html" width="300" height="400"></iframe>`
+}
+
+
+/* ---------------- SWITCH CHANNEL ---------------- */
+window.switchChannel=async function(channel){
+  isDM=false
+  dmUser=null
+  currentChannel=channel
+  document.getElementById("channelName").innerText='# '+channel
+  document.getElementById("messageInput").placeholder=(channel==='stats'||channel==='shop')?'':'Message #'+channel
+
+
+  if(channel==='shop'){
+    await loadShop()
+  }
+}
+
+
+/* ---------------- INITIAL LOAD ---------------- */
+loadShop()
+</script>
+</body>
+</html>
