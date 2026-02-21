@@ -135,213 +135,25 @@ if(!username){ while(!username) username=prompt("Enter username:"); localStorage
 await supabase.from("profiles").upsert({ username, bio:"", xp:0, level:1, coins:0 })
 
 
-/* ---------------- SEND MESSAGE ---------------- */
-async function sendMessage(){
-  const input=document.getElementById("messageInput")
-  const text=input.value.trim()
-  if(!text) return
-  if(!isDM && (currentChannel==='stats'||currentChannel==='shop')){ alert("You cannot send messages in this channel!"); return }
+/* ---------------- SWITCH CHANNEL ---------------- */
+window.switchChannel = async function(channel) {
+  isDM = false;
+  dmUser = null;
+  currentChannel = channel;
 
 
-  const { data: profile, error } = await supabase.from("profiles").select("id, can_chat, xp, level, coins").eq("username",username).maybeSingle()
-  if(error) return console.error(error)
-  if(!profile?.can_chat) return alert("You are not allowed to send messages.")
+  document.getElementById("channelName").innerText = (channel === 'stats') ? '# stats' : (channel === 'shop') ? '# shop' : '# ' + channel;
+  document.getElementById("messageInput").placeholder = (channel === 'stats' || channel === 'shop') ? '' : 'Message #' + channel;
 
 
-  let insertError = null
-  if(isDM){
-    const { error } = await supabase.from("dms").insert([{ sender:username, receiver:dmUser, text }])
-    insertError = error; if(error) console.error(error)
+  if (channel === 'stats') {
+    await loadStats();
+  } else if (channel === 'shop') {
+    await loadShop();
   } else {
-    const { error } = await supabase.from("messages").insert({ channel: currentChannel, username, text })
-    insertError = error; if(error) console.error(error)
+    await loadMessages();
   }
-
-
-  if(!insertError && profile?.id){
-    await supabase.rpc("give_coin_with_cooldown",{ uid: profile.id }) 
-    await supabase.from("profiles").update({ xp: profile.xp+10 }).eq("id",profile.id)
-    const newLevel=Math.floor((profile.xp+10)/100)+1
-    if(newLevel>profile.level){ await supabase.from("profiles").update({ level:newLevel }).eq("id",profile.id); displaySystemMessage(`🎉 ${username} leveled up to ${newLevel}!`) }
-  }
-
-
-  input.value=""
-  stopTyping()
-}
-
-
-/* ---------------- SHOP ---------------- */
-async function loadShop(){
-  const container = document.getElementById("shopItems");
-  container.innerHTML = ""; // Clear previous content
-
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("coins")
-    .eq("username", username)
-    .single();
-
-
-  if (!profile) {
-    alert("Profile not found!");
-    return;
-  }
-
-
-  // Example items in the shop
-  const items = [
-    { id: "snake-game", name: "Snake Game", description: "Play the classic Snake game! Cost: 25 coins", cost: 25 },
-    { id: "cool-hat", name: "Cool Hat", description: "Wear a cool hat! Cost: 0 coins", cost: 0 },
-    { id: "vip-badge", name: "VIP Badge", description: "Shows you're special! Cost: 100 coins", cost: 100 },
-  ];
-
-
-  // Loop through each item to create the HTML and add functionality
-  items.forEach(item => {
-    const itemDiv = document.createElement("div");
-    itemDiv.className = "shop-item";
-    itemDiv.innerHTML = `
-      <strong>${item.name}</strong>
-      <p>${item.description}</p>
-      <p><strong>Price: ${item.cost} coins</strong></p>
-      <button id="buy-${item.id}" ${profile.coins < item.cost ? 'disabled' : ''} onclick="
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Discord Clone</title>
-<link rel="icon" type="image/png" href="favicon.png">
-<style>
-body { margin:0; font-family:'Segoe UI',sans-serif; background:#36393f; color:white; display:flex; height:100vh; }
-.sidebar { width:240px; background:#2f3136; padding:15px; display:flex; flex-direction:column; }
-.sidebar h3 { color:#8e9297; font-size:12px; margin-bottom:10px; text-transform:uppercase; }
-.channel { padding:6px 10px; border-radius:4px; cursor:pointer; color:#b9bbbe; transition:.15s; }
-.channel:hover { background:#40444b; color:white; }
-.edit-profile { margin-top:auto; background:#40444b; text-align:center; padding:8px; border-radius:4px; cursor:pointer; }
-.edit-profile:hover { background:#5865f2; }
-.chat { flex:1; display:flex; flex-direction:column; }
-.header { padding:15px; background:#2f3136; font-weight:bold; border-bottom:1px solid #202225; }
-.messages { flex:1; padding:20px; overflow-y:auto; }
-.message { margin-bottom:10px; }
-.username { font-weight:bold; cursor:pointer; color:#7289da; }
-.username:hover { text-decoration:underline; }
-.input-area { padding:10px 15px; background:#40444b; display:flex; }
-input { flex:1; padding:10px; border-radius:4px; border:none; background:#303339; color:white; }
-button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; background:#7289da; color:white; cursor:pointer; }
-.typing-indicator { font-size:12px; color:#b9bbbe; margin-left:5px; font-style:italic; }
-.level-badge { background:#5865f2; color:white; border-radius:3px; padding:0 4px; font-size:10px; margin-left:4px; }
-/* Shop Styling */
-.shop {
-  padding: 15px;
-  background-color: #2f3136;
-  color: white;
-  border-radius: 4px;
-}
-
-
-.shop h3 {
-  font-size: 18px;
-  color: #7289da;
-}
-
-
-.shop-items {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 15px;
-}
-
-
-.shop-item {
-  background-color: #40444b;
-  padding: 15px;
-  border-radius: 6px;
-  transition: transform 0.2s ease;
-  color: white;
-  display: flex;
-  flex-direction: column;
-}
-
-
-.shop-item:hover {
-  transform: scale(1.05);
-}
-
-
-.shop-item button {
-  background-color: #7289da;
-  border: none;
-  padding: 8px;
-  color: white;
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-
-.shop-item button:disabled {
-  background-color: #7f8c8d;
-  cursor: not-allowed;
-}
-</style>
-</head>
-<body>
-
-
-<div class="sidebar">
-  <h3>TEXT CHANNELS</h3>
-  <div class="channel" onclick="switchChannel('general')"># general</div>
-  <div class="channel" onclick="switchChannel('gaming')"># gaming</div>
-  <div class="channel" onclick="switchChannel('coding')"># coding</div>
-  <div class="channel" onclick="switchChannel('stats')"># stats</div>
-  <div class="channel" onclick="switchChannel('shop')"># shop</div>
-  <div class="edit-profile" onclick="openProfileEditor()">⚙ Edit Profile</div>
-</div>
-
-
-<div class="chat">
-  <div class="header" id="channelName"># general</div>
-  <div class="messages" id="messages"></div>
-  <div class="input-area">
-    <input id="messageInput" placeholder="Message #general">
-    <button onclick="sendMessage()">Send</button>
-  </div>
-  <div id="typingIndicator" class="typing-indicator"></div>
-</div>
-
-
-<!-- Shop Section (New Shop) -->
-<div id="shop" class="shop" style="display:none;">
-  <h3>Welcome to the Shop!</h3>
-  <div id="shopItems" class="shop-items">
-    <!-- Items will be dynamically added here -->
-  </div>
-</div>
-
-
-<script type="module">
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"
-
-
-const supabase = createClient(
-  "https://adrusttuicogkeplrcac.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkcnVzdHR1aWNvZ2tlcGxyY2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5NDQxMjUsImV4cCI6MjA4NjUyMDEyNX0.XnfYHjY0lR5JMBX855xsOtiC44oOW_bRtZbGmSo8ZB0"
-)
-
-
-let username = localStorage.getItem("username") || ""
-let currentChannel = "general"
-let isDM = false
-let dmUser = null
-let typingTimeout = null
-
-
-if(!username){ while(!username) username=prompt("Enter username:"); localStorage.setItem("username",username) }
-
-
-await supabase.from("profiles").upsert({ username, bio:"", xp:0, level:1, coins:0 })
+};
 
 
 /* ---------------- SEND MESSAGE ---------------- */
@@ -401,18 +213,4 @@ async function loadShop(){
 
   // Example items in the shop
   const items = [
-    { id: "snake-game", name: "Snake Game", description: "Play the classic Snake game! Cost: 25 coins", cost: 25 },
-    { id: "cool-hat", name: "Cool Hat", description: "Wear a cool hat! Cost: 0 coins", cost: 0 },
-    { id: "vip-badge", name: "VIP Badge", description: "Shows you're special! Cost: 100 coins", cost: 100 },
-  ];
-
-
-  // Loop through each item to create the HTML and add functionality
-  items.forEach(item => {
-    const itemDiv = document.createElement("div");
-    itemDiv.className = "shop-item";
-    itemDiv.innerHTML = `
-      <strong>${item.name}</strong>
-      <p>${item.description}</p>
-      <p><strong>Price: ${item.cost} coins</strong></p>
-      <button id="buy-${item.id}" ${profile.coins < item.cost ? 'disabled' : ''} onclick="
+    { id: "snake-game", name: "
