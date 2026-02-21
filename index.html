@@ -23,77 +23,62 @@ input { flex:1; padding:10px; border-radius:4px; border:none; background:#303339
 button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; background:#7289da; color:white; cursor:pointer; }
 .typing-indicator { font-size:12px; color:#b9bbbe; margin-left:5px; font-style:italic; }
 .level-badge { background:#5865f2; color:white; border-radius:3px; padding:0 4px; font-size:10px; margin-left:4px; }
+/* Shop Styling */
+.shop {
+  padding: 15px;
+  background-color: #2f3136;
+  color: white;
+  border-radius: 4px;
+}
+
+
+.shop h3 {
+  font-size: 18px;
+  color: #7289da;
+}
 
 
 .shop-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  justify-content: space-around;
-  margin: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
 }
 
 
-.shop-item-card {
-  background-color: #2f3136;
-  padding: 15px;
-  border-radius: 8px;
-  width: 220px;
-  text-align: center;
-  color: #b9bbbe;
-  transition: 0.3s;
-}
-
-
-.shop-item-card:hover {
+.shop-item {
   background-color: #40444b;
-  cursor: pointer;
+  padding: 15px;
+  border-radius: 6px;
+  transition: transform 0.2s ease;
+  color: white;
+  display: flex;
+  flex-direction: column;
 }
 
 
-.shop-item-card h4 {
-  font-size: 16px;
-  margin-bottom: 10px;
+.shop-item:hover {
+  transform: scale(1.05);
 }
 
 
-.shop-item-card p {
-  font-size: 14px;
-  margin-bottom: 10px;
-}
-
-
-.shop-item-card button {
-  padding: 10px;
+.shop-item button {
   background-color: #7289da;
-  color: white;
   border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-
-.shop-item-card button:hover {
-  background-color: #5865f2;
-}
-
-
-.insufficient-coins {
-  background-color: #ff4343;
-  color: white;
   padding: 8px;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
   border-radius: 4px;
-  text-align: center;
-  margin: 20px 0;
-  font-weight: bold;
-  display: none;
+}
+
+
+.shop-item button:disabled {
+  background-color: #7f8c8d;
+  cursor: not-allowed;
 }
 </style>
 </head>
 <body>
-
-
 
 
 <div class="sidebar">
@@ -107,8 +92,6 @@ button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; ba
 </div>
 
 
-
-
 <div class="chat">
   <div class="header" id="channelName"># general</div>
   <div class="messages" id="messages"></div>
@@ -120,6 +103,13 @@ button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; ba
 </div>
 
 
+<!-- Shop Section (New Shop) -->
+<div id="shop" class="shop" style="display:none;">
+  <h3>Welcome to the Shop!</h3>
+  <div id="shopItems" class="shop-items">
+    <!-- Items will be dynamically added here -->
+  </div>
+</div>
 
 
 <script type="module">
@@ -145,64 +135,90 @@ if(!username){ while(!username) username=prompt("Enter username:"); localStorage
 await supabase.from("profiles").upsert({ username, bio:"", xp:0, level:1, coins:0 })
 
 
-/* ---------------- SEND MESSAGE ---------------- */
-async function sendMessage(){
-  const input=document.getElementById("messageInput")
-  const text=input.value.trim()
-  if(!text) return
-  if(!isDM && (currentChannel==='stats'||currentChannel==='shop')){ alert("You cannot send messages in this channel!"); return }
+/* ---------------- LOAD SHOP ---------------- */
+async function loadShop(){
+  const container = document.getElementById("shopItems");
+  container.innerHTML = ""; // Clear previous content
 
 
-  const { data: profile, error } = await supabase.from("profiles").select("id, can_chat, xp, level, coins").eq("username",username).maybeSingle()
-  if(error) return console.error(error)
-  if(!profile?.can_chat) return alert("You are not allowed to send messages.")
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("coins")
+    .eq("username", username)
+    .single();
 
 
-  let insertError = null
-  if(isDM){
-    const { error } = await supabase.from("dms").insert([{ sender:username, receiver:dmUser, text }])
-    insertError = error; if(error) console.error(error)
+  if (!profile) {
+    alert("Profile not found!");
+    return;
+  }
+
+
+  // Example items in the shop
+  const items = [
+    { id: "snake-game", name: "Snake Game", description: "Play the classic Snake game! Cost: 25 coins", cost: 25 },
+    { id: "cool-hat", name: "Cool Hat", description: "Wear a cool hat! Cost: 0 coins", cost: 0 },
+    { id: "vip-badge", name: "VIP Badge", description: "Shows you're special! Cost: 100 coins", cost: 100 },
+  ];
+
+
+  // Loop through each item to create the HTML and add functionality
+  items.forEach(item => {
+    const itemDiv = document.createElement("div");
+    itemDiv.className = "shop-item";
+    itemDiv.innerHTML = `
+      <strong>${item.name}</strong>
+      <p>${item.description}</p>
+      <p><strong>Price: ${item.cost} coins</strong></p>
+      <button id="buy-${item.id}" ${profile.coins < item.cost ? 'disabled' : ''} onclick="buyItem('${item.id}', ${item.cost})">
+        ${profile.coins < item.cost ? 'Not enough coins' : 'Buy'}
+      </button>
+    `;
+    container.appendChild(itemDiv);
+  });
+}
+
+
+// Handle the item purchase
+async function buyItem(itemId, itemCost) {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("coins")
+    .eq("username", username)
+    .single();
+
+
+  if (profile.coins < itemCost) {
+    alert("You don't have enough coins!");
+    return;
+  }
+
+
+  // Deduct coins and update the user profile
+  await supabase
+    .from("profiles")
+    .update({ coins: profile.coins - itemCost })
+    .eq("username", username);
+
+
+  // For example, unlock the Snake Game
+  if (itemId === "snake-game") {
+    alert("You bought Snake Game! Enjoy playing!");
+    const container = document.getElementById("snake-container");
+    container.innerHTML = `<iframe src="snake.html" width="300" height="400"></iframe>`;
   } else {
-    const { error } = await supabase.from("messages").insert({ channel: currentChannel, username, text })
-    insertError = error; if(error) console.error(error)
+    alert(`You bought ${itemId}!`);
   }
 
 
-  if(!insertError && profile?.id){
-    await supabase.rpc("give_coin_with_cooldown",{ uid: profile.id }) 
-    await supabase.from("profiles").update({ xp: profile.xp+10 }).eq("id",profile.id)
-    const newLevel=Math.floor((profile.xp+10)/100)+1
-    if(newLevel>profile.level){ await supabase.from("profiles").update({ level:newLevel }).eq("id",profile.id); displaySystemMessage(`🎉 ${username} leveled up to ${newLevel}!`) }
-  }
-
-
-  input.value=""
-  stopTyping()
+  // Refresh the shop to show updated coins and unlock purchase button
+  loadShop();
 }
 
 
-/* ---------------- TYPING ---------------- */
-const messageInput=document.getElementById("messageInput")
-messageInput.addEventListener("input", async ()=>{
-  const { data: profile } = await supabase.from("profiles").select("id").eq("username",username).maybeSingle()
-  if(!profile?.id) return
-  await supabase.from("typing").upsert({ user_id:profile.id, channel:currentChannel, is_dm:isDM, dm_user:dmUser })
-  clearTimeout(typingTimeout)
-  typingTimeout=setTimeout(stopTyping,2000)
-})
-async function stopTyping(){
-  const { data: profile } = await supabase.from("profiles").select("id").eq("username",username).maybeSingle()
-  if(!profile?.id) return
-  await supabase.from("typing").delete().eq("user_id",profile.id).eq("channel",currentChannel).eq("is_dm",isDM).eq("dm_user",dmUser)
-}
-
-
-/* ---------------- LOAD ---------------- */
-async function loadMessages(){
-  const { data } = await supabase.from("messages").select("*").eq("channel",currentChannel).order("created_at",{ascending:true})
-  const container=document.getElementById("messages"); container.innerHTML=""; data.forEach(displayMessage)
-}
-async function loadDMs(){
-  const { data, error } = await supabase.from("dms").select("*").or(`and(sender.eq.${encodeURIComponent(username)},receiver.eq.${encodeURIComponent(dmUser)}),and(sender.eq.${encodeURIComponent(dmUser)},receiver.eq.${encodeURIComponent(username)})`).order("created_at",{ascending:true})
-  if(error) return console.error(error)
-  const
+/* ---------------- OPEN DM / SWITCH CHANNEL ---------------- */
+window.openDM=async function(user){ if(user===username) return; isDM=true; dmUser=user; document.getElementById("channelName").innerText="@ "+user; document.getElementById("messageInput").placeholder="Message @"+user; await loadDMs() }
+window.switchChannel=async function(channel){ 
+  isDM=false; dmUser=null; 
+  currentChannel=channel; 
+  document.getElementById("channelName").innerText=(channel==='stats')?'# stats':(channel==='shop')?'# shop':'# '+channel;
