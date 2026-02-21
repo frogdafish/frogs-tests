@@ -23,9 +23,77 @@ input { flex:1; padding:10px; border-radius:4px; border:none; background:#303339
 button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; background:#7289da; color:white; cursor:pointer; }
 .typing-indicator { font-size:12px; color:#b9bbbe; margin-left:5px; font-style:italic; }
 .level-badge { background:#5865f2; color:white; border-radius:3px; padding:0 4px; font-size:10px; margin-left:4px; }
+
+
+.shop-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: space-around;
+  margin: 20px;
+}
+
+
+.shop-item-card {
+  background-color: #2f3136;
+  padding: 15px;
+  border-radius: 8px;
+  width: 220px;
+  text-align: center;
+  color: #b9bbbe;
+  transition: 0.3s;
+}
+
+
+.shop-item-card:hover {
+  background-color: #40444b;
+  cursor: pointer;
+}
+
+
+.shop-item-card h4 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+
+.shop-item-card p {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+
+.shop-item-card button {
+  padding: 10px;
+  background-color: #7289da;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+
+.shop-item-card button:hover {
+  background-color: #5865f2;
+}
+
+
+.insufficient-coins {
+  background-color: #ff4343;
+  color: white;
+  padding: 8px;
+  border-radius: 4px;
+  text-align: center;
+  margin: 20px 0;
+  font-weight: bold;
+  display: none;
+}
 </style>
 </head>
 <body>
+
+
 
 
 <div class="sidebar">
@@ -39,6 +107,8 @@ button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; ba
 </div>
 
 
+
+
 <div class="chat">
   <div class="header" id="channelName"># general</div>
   <div class="messages" id="messages"></div>
@@ -48,6 +118,8 @@ button { margin-left:10px; padding:10px 16px; border-radius:4px; border:none; ba
   </div>
   <div id="typingIndicator" class="typing-indicator"></div>
 </div>
+
+
 
 
 <script type="module">
@@ -73,101 +145,64 @@ if(!username){ while(!username) username=prompt("Enter username:"); localStorage
 await supabase.from("profiles").upsert({ username, bio:"", xp:0, level:1, coins:0 })
 
 
-/* ---------------- SHOP ---------------- */
-async function loadShop(){
-  const container=document.getElementById("messages")
-  container.innerHTML=""
+/* ---------------- SEND MESSAGE ---------------- */
+async function sendMessage(){
+  const input=document.getElementById("messageInput")
+  const text=input.value.trim()
+  if(!text) return
+  if(!isDM && (currentChannel==='stats'||currentChannel==='shop')){ alert("You cannot send messages in this channel!"); return }
 
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("coins, owned_snake")
-    .eq("username", username)
-    .maybeSingle()
+  const { data: profile, error } = await supabase.from("profiles").select("id, can_chat, xp, level, coins").eq("username",username).maybeSingle()
+  if(error) return console.error(error)
+  if(!profile?.can_chat) return alert("You are not allowed to send messages.")
 
 
-  const div=document.createElement("div")
-  div.className="message"
-
-
-  if(profile?.owned_snake){
-    div.innerHTML=`
-      <strong>Snake Game</strong><br>
-      You already own this game.<br>
-      <button onclick="playSnakeGame()">Play Game</button>
-      <div id="snake-container"></div>
-    `
-  }else{
-    div.innerHTML=`
-      <strong>Snake Game</strong><br>
-      Play the classic Snake game! Cost: 25 coins<br>
-      <button onclick="buySnakeGame()">Buy & Play</button>
-      <div id="snake-container"></div>
-    `
+  let insertError = null
+  if(isDM){
+    const { error } = await supabase.from("dms").insert([{ sender:username, receiver:dmUser, text }])
+    insertError = error; if(error) console.error(error)
+  } else {
+    const { error } = await supabase.from("messages").insert({ channel: currentChannel, username, text })
+    insertError = error; if(error) console.error(error)
   }
 
 
-  container.appendChild(div)
-  container.scrollTop=container.scrollHeight
-}
-
-
-async function buySnakeGame(){
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("coins, owned_snake")
-    .eq("username", username)
-    .maybeSingle()
-
-
-  if(!profile) return
-
-
-  if(profile.coins < 25){
-    alert("You need 25 coins to buy Snake!")
-    return
+  if(!insertError && profile?.id){
+    await supabase.rpc("give_coin_with_cooldown",{ uid: profile.id }) 
+    await supabase.from("profiles").update({ xp: profile.xp+10 }).eq("id",profile.id)
+    const newLevel=Math.floor((profile.xp+10)/100)+1
+    if(newLevel>profile.level){ await supabase.from("profiles").update({ level:newLevel }).eq("id",profile.id); displaySystemMessage(`🎉 ${username} leveled up to ${newLevel}!`) }
   }
 
 
-  await supabase.from("profiles").update({
-    coins: profile.coins - 25,
-    owned_snake: true
-  }).eq("username", username)
-
-
-  const container=document.getElementById("snake-container")
-  container.innerHTML=`<iframe src="snake.html" width="300" height="400"></iframe>`
-
-
-  const button=container.parentElement.querySelector("button")
-  if(button) button.remove()
+  input.value=""
+  stopTyping()
 }
 
 
-function playSnakeGame(){
-  const container=document.getElementById("snake-container")
-  container.innerHTML=`<iframe src="snake.html" width="300" height="400"></iframe>`
+/* ---------------- TYPING ---------------- */
+const messageInput=document.getElementById("messageInput")
+messageInput.addEventListener("input", async ()=>{
+  const { data: profile } = await supabase.from("profiles").select("id").eq("username",username).maybeSingle()
+  if(!profile?.id) return
+  await supabase.from("typing").upsert({ user_id:profile.id, channel:currentChannel, is_dm:isDM, dm_user:dmUser })
+  clearTimeout(typingTimeout)
+  typingTimeout=setTimeout(stopTyping,2000)
+})
+async function stopTyping(){
+  const { data: profile } = await supabase.from("profiles").select("id").eq("username",username).maybeSingle()
+  if(!profile?.id) return
+  await supabase.from("typing").delete().eq("user_id",profile.id).eq("channel",currentChannel).eq("is_dm",isDM).eq("dm_user",dmUser)
 }
 
 
-/* ---------------- SWITCH CHANNEL ---------------- */
-window.switchChannel=async function(channel){
-  isDM=false
-  dmUser=null
-  currentChannel=channel
-  document.getElementById("channelName").innerText='# '+channel
-  document.getElementById("messageInput").placeholder=(channel==='stats'||channel==='shop')?'':'Message #'+channel
-
-
-  if(channel==='shop'){
-    await loadShop()
-  }
+/* ---------------- LOAD ---------------- */
+async function loadMessages(){
+  const { data } = await supabase.from("messages").select("*").eq("channel",currentChannel).order("created_at",{ascending:true})
+  const container=document.getElementById("messages"); container.innerHTML=""; data.forEach(displayMessage)
 }
-
-
-/* ---------------- INITIAL LOAD ---------------- */
-loadShop()
-</script>
-</body>
-</html>
-
+async function loadDMs(){
+  const { data, error } = await supabase.from("dms").select("*").or(`and(sender.eq.${encodeURIComponent(username)},receiver.eq.${encodeURIComponent(dmUser)}),and(sender.eq.${encodeURIComponent(dmUser)},receiver.eq.${encodeURIComponent(username)})`).order("created_at",{ascending:true})
+  if(error) return console.error(error)
+  const
